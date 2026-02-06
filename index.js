@@ -12,7 +12,12 @@ const questionRoutes = require('./src/routes/questionRoutes');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://sistema-unefa.netlify.app',  // Tu Frontend en producción    
+    'http://localhost:3000'               // Tu entorno local (si usas otro puerto)
+  ]
+}));
 app.use(express.json());
 
 // Servir carpeta de archivos estáticos (uploads)
