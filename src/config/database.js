@@ -93,6 +93,17 @@ function initDb() {
       FOREIGN KEY(user_id) REFERENCES users(id)
     )`);
 
+    // 8. INTENTOS DEL QUIZ
+    db.run(`CREATE TABLE IF NOT EXISTS quiz_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      semester_id INTEGER,
+      attempts_used INTEGER DEFAULT 0,
+      max_attempts INTEGER DEFAULT 2,
+      last_attempt_at DATETIME,
+      FOREIGN KEY(user_id) REFERENCES users(id)
+    )`);
+
     console.log('Tablas del sistema verificadas/actualizadas.');
   });
 }

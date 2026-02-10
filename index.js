@@ -8,6 +8,7 @@ const userRoutes = require('./src/routes/userRoutes'); // NUEVO
 const publicationRoutes = require('./src/routes/publicationRoutes');
 const forumRoutes = require('./src/routes/forumRoutes');
 const questionRoutes = require('./src/routes/questionRoutes');
+const quizAttemptRoutes = require('./src/routes/quizAttemptRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -32,6 +33,7 @@ app.use('/api/users', userRoutes); // NUEVO -> localhost:5000/api/users/profile
 app.use('/api/publications', publicationRoutes);
 app.use('/api/forum', forumRoutes);
 app.use('/api/questions', questionRoutes);
+app.use('/api/quiz-attempts', quizAttemptRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'API del Sistema UNEFA funcionando', status: 'online' });
