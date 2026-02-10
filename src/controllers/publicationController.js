@@ -2,23 +2,16 @@ const db = require('../config/database');
 
 // 1. CREAR PUBLICACIÓN
 exports.createPublication = (req, res) => {
-    // AHORA RECIBIMOS semester_id DEL FRONTEND
-    const { title, content, semester_id } = req.body;
+    const { title, content, semester_id, file_data } = req.body;
     const author_id = req.user.id;
 
     if (!title || !content || !semester_id) {
         return res.status(400).json({ error: 'Faltan datos (título, contenido o semestre).' });
     }
 
-    // Procesar archivo si existe
-    let fileUrl = null;
-    if (req.file) {
-        // Construir URL completa (ej: http://localhost:5000/uploads/123-file.pdf)
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
-    }
+    // file_data es un string Base64 que viene del frontend (data:image/png;base64,... o data:application/pdf;base64,...)
+    const fileUrl = file_data || null;
 
-    // Guardamos el semester_id y la URL del archivo en la base de datos
     const query = `INSERT INTO publications (title, content, author_id, semester_id, file_attachment_url) VALUES (?, ?, ?, ?, ?)`;
 
     db.run(query, [title, content, author_id, semester_id, fileUrl], function (err) {
@@ -53,25 +46,19 @@ exports.getPublicationsBySemester = (req, res) => {
 // 4. ACTUALIZAR PUBLICACIÓN
 exports.updatePublication = (req, res) => {
     const { id } = req.params;
-    const { title, content, semester_id } = req.body;
+    const { title, content, semester_id, file_data } = req.body;
     const author_id = req.user.id;
 
-    // Primero verificamos que la publicación pertenezca al autor (o que sea admin)
     db.get('SELECT * FROM publications WHERE id = ?', [id], (err, post) => {
         if (err) return res.status(500).json({ error: err.message });
         if (!post) return res.status(404).json({ error: 'Publicación no encontrada' });
 
-        // Verificar propiedad
         if (post.author_id !== author_id && req.user.role !== 'admin') {
             return res.status(403).json({ error: 'No tienes permiso para editar esta publicación' });
         }
 
-        // Preparar URL del archivo si hay uno nuevo
-        let fileUrl = post.file_attachment_url; // Mantener el anterior por defecto
-        if (req.file) {
-            const baseUrl = `${req.protocol}://${req.get('host')}`;
-            fileUrl = `${baseUrl}/uploads/${req.file.filename}`;
-        }
+        // Si se envía file_data, usar ese. Si no, mantener el anterior.
+        const fileUrl = file_data !== undefined ? (file_data || null) : post.file_attachment_url;
 
         const query = `
             UPDATE publications SET 
