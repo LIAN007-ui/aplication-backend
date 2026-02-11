@@ -121,6 +121,27 @@ exports.createUser = (req, res) => {
     }
   }
 
+  // 3. VALIDACIÓN PREVIA: Verificar cédula duplicada ANTES de crear usuario
+  if (role === 'student' && profileData.cedula) {
+    const cedulaLimpia = String(profileData.cedula).replace(/\D/g, '');
+
+    db.get(
+      `SELECT sp.cedula FROM student_profiles sp JOIN users u ON sp.user_id = u.id WHERE REPLACE(REPLACE(REPLACE(sp.cedula, 'V-', ''), 'E-', ''), '.', '') = ?`,
+      [cedulaLimpia],
+      (err, existing) => {
+        if (existing) {
+          return res.status(400).json({ error: 'La cédula ya está registrada en el sistema.' });
+        }
+        // Cédula libre, proceder
+        proceedWithCreateUser(res, username, email, password, role, profileData);
+      }
+    );
+  } else {
+    proceedWithCreateUser(res, username, email, password, role, profileData);
+  }
+};
+
+function proceedWithCreateUser(res, username, email, password, role, profileData) {
   const salt = bcrypt.genSaltSync(10);
   const hash = bcrypt.hashSync(password, salt);
   const queryUser = `INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)`;
@@ -131,26 +152,31 @@ exports.createUser = (req, res) => {
       return res.status(500).json({ error: err.message });
     }
 
-    // Si llegamos aquí, el usuario base se creó. Ahora creamos el perfil.
     const userId = this.lastID;
 
     if (role === 'student') {
       const { first_name, last_name, cedula, career, current_semester_id } = profileData;
-      // No usamos default || 1. Usamos el valor validado.
       const queryStudent = `INSERT INTO student_profiles (user_id, first_name, last_name, cedula, career, current_semester_id) VALUES (?, ?, ?, ?, ?, ?)`;
 
       db.run(queryStudent, [userId, first_name, last_name, cedula, career, current_semester_id], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+          // ROLLBACK: Si falla el perfil, eliminar el usuario huérfano
+          db.run(`DELETE FROM users WHERE id = ?`, [userId]);
+          return res.status(500).json({ error: err.message });
+        }
         res.status(201).json({ message: 'Estudiante creado exitosamente' });
       });
 
     } else if (role === 'teacher') {
       const { full_name, assigned_semester_id } = profileData;
-      // No usamos default || 1. Usamos el valor validado.
       const queryTeacher = `INSERT INTO teacher_profiles (user_id, full_name, assigned_semester_id) VALUES (?, ?, ?)`;
 
       db.run(queryTeacher, [userId, full_name, assigned_semester_id], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+          // ROLLBACK: Si falla el perfil, eliminar el usuario huérfano
+          db.run(`DELETE FROM users WHERE id = ?`, [userId]);
+          return res.status(500).json({ error: err.message });
+        }
         res.status(201).json({ message: 'Docente creado exitosamente' });
       });
 
@@ -158,14 +184,29 @@ exports.createUser = (req, res) => {
       res.status(201).json({ message: 'Administrador creado exitosamente' });
     }
   });
-};
+}
 
-// 5. ELIMINAR USUARIO
+// 5. ELIMINAR USUARIO (con limpieza completa de datos relacionados)
 exports.deleteUser = (req, res) => {
   const { id } = req.params;
-  db.run(`DELETE FROM users WHERE id = ?`, [id], (err) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Eliminado correctamente' });
+
+  // Primero eliminamos todos los datos relacionados para evitar perfiles huérfanos
+  db.serialize(() => {
+    // Eliminar perfil de estudiante si existe
+    db.run(`DELETE FROM student_profiles WHERE user_id = ?`, [id]);
+    // Eliminar perfil de docente si existe
+    db.run(`DELETE FROM teacher_profiles WHERE user_id = ?`, [id]);
+    // Eliminar intentos de quiz si existen
+    db.run(`DELETE FROM quiz_attempts WHERE user_id = ?`, [id]);
+    // Eliminar posts del foro si existen
+    db.run(`DELETE FROM forum_posts WHERE user_id = ?`, [id]);
+
+    // Finalmente eliminar el usuario base
+    db.run(`DELETE FROM users WHERE id = ?`, [id], function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+      res.json({ message: 'Eliminado correctamente' });
+    });
   });
 };
 

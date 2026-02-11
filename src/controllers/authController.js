@@ -12,6 +12,35 @@ exports.register = (req, res) => {
         return res.status(400).json({ error: 'Faltan datos obligatorios (username, email, password, role)' });
     }
 
+    // VALIDACIÓN PREVIA: Si es estudiante, verificar cédula duplicada ANTES de crear el usuario
+    if (role === 'student') {
+        const { first_name, cedula } = profileData;
+
+        if (!first_name || !cedula) {
+            return res.status(400).json({ error: 'Faltan datos del perfil de estudiante' });
+        }
+
+        // Limpiar cédula para comparar solo números
+        const cedulaLimpia = String(cedula).replace(/\D/g, '');
+
+        db.get(
+            `SELECT sp.cedula FROM student_profiles sp JOIN users u ON sp.user_id = u.id WHERE REPLACE(REPLACE(REPLACE(sp.cedula, 'V-', ''), 'E-', ''), '.', '') = ?`,
+            [cedulaLimpia],
+            (err, existing) => {
+                if (existing) {
+                    return res.status(400).json({ error: 'La cédula ya está registrada en el sistema.' });
+                }
+                // Cédula libre, proceder con el registro
+                proceedWithRegister(req, res, username, email, password, role, profileData);
+            }
+        );
+    } else {
+        // Para teacher/admin no necesitamos validar cédula
+        proceedWithRegister(req, res, username, email, password, role, profileData);
+    }
+};
+
+function proceedWithRegister(req, res, username, email, password, role, profileData) {
     const salt = bcrypt.genSaltSync(10);
     const hash = bcrypt.hashSync(password, salt);
 
@@ -30,14 +59,14 @@ exports.register = (req, res) => {
         if (role === 'student') {
             const { first_name, last_name, cedula, career, current_semester_id } = profileData;
 
-            if (!first_name || !cedula) {
-                return res.status(400).json({ error: 'Faltan datos del perfil de estudiante' });
-            }
-
             const queryStudent = `INSERT INTO student_profiles (user_id, first_name, last_name, cedula, career, current_semester_id) VALUES (?, ?, ?, ?, ?, ?)`;
 
             db.run(queryStudent, [userId, first_name, last_name, cedula, career, current_semester_id], (err) => {
-                if (err) return res.status(500).json({ error: 'Error creando perfil estudiante: ' + err.message });
+                if (err) {
+                    // ROLLBACK: Si falla el perfil, eliminar el usuario huérfano
+                    db.run(`DELETE FROM users WHERE id = ?`, [userId]);
+                    return res.status(500).json({ error: 'Error creando perfil estudiante: ' + err.message });
+                }
                 res.status(201).json({ message: 'Estudiante registrado exitosamente', userId });
             });
 
@@ -47,7 +76,11 @@ exports.register = (req, res) => {
             const queryTeacher = `INSERT INTO teacher_profiles (user_id, full_name, assigned_semester_id) VALUES (?, ?, ?)`;
 
             db.run(queryTeacher, [userId, full_name, assigned_semester_id], (err) => {
-                if (err) return res.status(500).json({ error: 'Error creando perfil docente: ' + err.message });
+                if (err) {
+                    // ROLLBACK: Si falla el perfil, eliminar el usuario huérfano
+                    db.run(`DELETE FROM users WHERE id = ?`, [userId]);
+                    return res.status(500).json({ error: 'Error creando perfil docente: ' + err.message });
+                }
                 res.status(201).json({ message: 'Docente registrado exitosamente', userId });
             });
 
@@ -57,7 +90,7 @@ exports.register = (req, res) => {
             res.status(400).json({ error: 'Rol no válido' });
         }
     });
-};
+}
 
 exports.login = (req, res) => {
     const { identifier, password } = req.body;

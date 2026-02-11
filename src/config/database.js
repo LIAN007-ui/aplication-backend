@@ -8,7 +8,15 @@ const db = new sqlite3.Database(dbPath, (err) => {
     console.error('Error al conectar con la base de datos:', err.message);
   } else {
     console.log('Conectado a la base de datos SQLite (unefa.db)');
-    initDb();
+    // IMPORTANTE: Activar Foreign Keys (SQLite las tiene desactivadas por defecto)
+    db.run('PRAGMA foreign_keys = ON', (err) => {
+      if (err) {
+        console.error('Error activando foreign keys:', err.message);
+      } else {
+        console.log('Foreign Keys ACTIVADAS correctamente.');
+      }
+      initDb();
+    });
   }
 });
 
@@ -31,10 +39,10 @@ function initDb() {
       last_name TEXT,
       cedula TEXT,
       career TEXT,
-      current_semester_id INTEGER, -- ¡IMPORTANTE!
+      current_semester_id INTEGER,
       score REAL DEFAULT 0,
       photo_url TEXT,
-      FOREIGN KEY(user_id) REFERENCES users(id)
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )`);
 
     // 3. Perfiles Docentes
@@ -42,9 +50,9 @@ function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
       full_name TEXT,
-      assigned_semester_id INTEGER, -- ¡IMPORTANTE!
+      assigned_semester_id INTEGER,
       photo_url TEXT,
-      FOREIGN KEY(user_id) REFERENCES users(id)
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     )`);
 
     // 4. Semestres (Catálogo)
@@ -105,7 +113,56 @@ function initDb() {
     )`);
 
     console.log('Tablas del sistema verificadas/actualizadas.');
+
+    // MIGRACIÓN AUTOMÁTICA: Limpiar datos huérfanos al arrancar
+    cleanOrphanedData();
   });
+}
+
+function cleanOrphanedData() {
+  console.log('--- Ejecutando limpieza de datos huérfanos ---');
+
+  // 1. Perfiles de estudiantes sin usuario asociado
+  db.run(
+    `DELETE FROM student_profiles WHERE user_id NOT IN (SELECT id FROM users)`,
+    function (err) {
+      if (!err && this.changes > 0) {
+        console.log(`Limpieza: ${this.changes} perfil(es) de estudiante huérfano(s) eliminado(s).`);
+      }
+    }
+  );
+
+  // 2. Perfiles de docentes sin usuario asociado
+  db.run(
+    `DELETE FROM teacher_profiles WHERE user_id NOT IN (SELECT id FROM users)`,
+    function (err) {
+      if (!err && this.changes > 0) {
+        console.log(`Limpieza: ${this.changes} perfil(es) de docente huérfano(s) eliminado(s).`);
+      }
+    }
+  );
+
+  // 3. Intentos de quiz sin usuario asociado
+  db.run(
+    `DELETE FROM quiz_attempts WHERE user_id NOT IN (SELECT id FROM users)`,
+    function (err) {
+      if (!err && this.changes > 0) {
+        console.log(`Limpieza: ${this.changes} intento(s) de quiz huérfano(s) eliminado(s).`);
+      }
+    }
+  );
+
+  // 4. Posts del foro sin usuario asociado
+  db.run(
+    `DELETE FROM forum_posts WHERE user_id NOT IN (SELECT id FROM users)`,
+    function (err) {
+      if (!err && this.changes > 0) {
+        console.log(`Limpieza: ${this.changes} post(s) del foro huérfano(s) eliminado(s).`);
+      }
+    }
+  );
+
+  console.log('--- Limpieza de datos huérfanos completada ---');
 }
 
 module.exports = db;
